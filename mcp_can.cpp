@@ -700,6 +700,12 @@ INT8U MCP_CAN::sendMsgBuf(INT32U id, INT8U ext, INT8U len, INT8U *buf)
     sendMsg();
 }
 
+INT8U MCP_CAN::sendFrame(CAN_FRAME &frame)
+{
+	setMsg(frame.id, frame.extended, frame.length, frame.data.bytes);
+	sendMsg();
+}
+
 /*********************************************************************************************************
 ** Function name:           readMsg
 ** Descriptions:            read message
@@ -742,6 +748,19 @@ INT8U MCP_CAN::readMsgBuf(INT8U *len, INT8U buf[])
       buf[i] = m_nDta[i];
     }
 }
+
+INT8U MCP_CAN::receiveFrame(CAN_FRAME &frame)
+{
+	readMsg();
+	frame.length = m_nDlc;
+    for(int i = 0; i < m_nDlc; i++)
+    {
+      frame.data.byte[i] = m_nDta[i];
+    }
+	frame.extended = m_nExtFlg;
+	frame.id = m_nID;
+}
+
 
 /*********************************************************************************************************
 ** Function name:           checkReceive
@@ -786,6 +805,94 @@ INT8U MCP_CAN::checkError(void)
 INT32U MCP_CAN::getCanId(void)
 {
     return m_nID;
+}
+
+void MCP_CAN::EnqueueRX(CAN_FRAME& newFrame) {
+	uint8_t counter;
+	rx_frames[rx_frame_write_pos].id = newFrame.id;
+	rx_frames[rx_frame_write_pos].rtr = newFrame.rtr;
+	rx_frames[rx_frame_write_pos].extended = newFrame.extended;
+	rx_frames[rx_frame_write_pos].length = newFrame.length;
+	for (counter = 0; counter < 8; counter++) rx_frames[rx_frame_write_pos].data.byte[counter] = newFrame.data.byte[counter];
+	rx_frame_write_pos = (rx_frame_write_pos + 1) % SIZE_RX_BUFFER;
+}
+
+bool MCP_CAN::GetRXFrame(CAN_FRAME &frame) {
+	byte counter;
+	if (rx_frame_read_pos != rx_frame_write_pos) {
+		frame.id = rx_frames[rx_frame_read_pos].id;
+		frame.rtr = rx_frames[rx_frame_read_pos].rtr;
+		frame.extended = rx_frames[rx_frame_read_pos].extended;
+		frame.length = rx_frames[rx_frame_read_pos].length;
+		for (counter = 0; counter < 8; counter++) frame.data.byte[counter] = rx_frames[rx_frame_read_pos].data.byte[counter];
+		rx_frame_read_pos = (rx_frame_read_pos + 1) % SIZE_RX_BUFFER;
+		return true;
+	}
+	else return false;
+}
+
+void MCP_CAN::handleInt()
+{
+	CAN_FRAME message;
+    // determine which interrupt flags have been set
+    uint8_t interruptFlags = mcp2515_readRegister(MCP_CANINTF);
+    //Now, acknowledge the interrupts by clearing the intf bits
+	mcp2515_setRegister(MCP_CANINTF, 0);
+    
+    if(interruptFlags & MCP_RX0IF) {
+		mcp2515_read_canMsg( MCP_RXBUF_0);
+		receiveFrame(message);
+     	EnqueueRX(message);
+    }
+    if(interruptFlags & MCP_RX1IF) {
+		mcp2515_read_canMsg( MCP_RXBUF_1);
+		receiveFrame(message);
+        EnqueueRX(message);
+    }
+    if(interruptFlags & MCP_TX0IF) {
+		/*
+       if (tx_frame_read_pos != tx_frame_write_pos) {
+			LoadBuffer(TXB0, (Frame *)&tx_frames[tx_frame_read_pos]);
+		   	SendBuffer(TXB0);
+			tx_frame_read_pos = (tx_frame_read_pos + 1) % 8;
+	   }*/
+    }
+    if(interruptFlags & MCP_TX1IF) {
+		/*
+	  if (tx_frame_read_pos != tx_frame_write_pos) {
+		  LoadBuffer(TXB1, (Frame *)&tx_frames[tx_frame_read_pos]);
+		  SendBuffer(TXB1);
+		  tx_frame_read_pos = (tx_frame_read_pos + 1) % 8;
+	  }*/
+    }
+    if(interruptFlags & MCP_TX2IF) {
+		/*
+		if (tx_frame_read_pos != tx_frame_write_pos) {
+			LoadBuffer(TXB2, (Frame *)&tx_frames[tx_frame_read_pos]);
+			SendBuffer(TXB2);
+			tx_frame_read_pos = (tx_frame_read_pos + 1) % 8;
+		} */
+    }
+    if(interruptFlags & MCP_ERRIF) {
+		/*
+      if (running == 1) { //if there was an error and we had been initialized then try to fix it by reinitializing
+		  running = 0;
+		  InitBuffers();
+		  Init(savedBaud, savedFreq);
+	  }*/
+    }
+    if(interruptFlags & MCP_MERRF) {
+      // error handling code
+      // if TXBnCTRL.TXERR set then transmission error
+      // if message is lost TXBnCTRL.MLOA will be set
+		/*
+      if (running == 1) { //if there was an error and we had been initialized then try to fix it by reinitializing
+		running = 0;
+		InitBuffers();
+		Init(savedBaud, savedFreq);
+	  }	  
+	  */
+    }
 }
 /*********************************************************************************************************
   END FILE
