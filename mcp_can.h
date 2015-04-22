@@ -140,6 +140,7 @@ public:
     INT32U getCanId(void);                                          /* get can id when receive      */
 	void handleInt();
 	bool GetRXFrame(CAN_FRAME &frame);
+	void EnqueueTX(CAN_FRAME& newFrame);
 };
 
 extern MCP_CAN CAN;

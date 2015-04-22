@@ -807,6 +807,37 @@ INT32U MCP_CAN::getCanId(void)
     return m_nID;
 }
 
+void MCP_CAN::EnqueueTX(CAN_FRAME& newFrame) {
+	byte counter;
+	byte status = mcp2515_readStatus() & 0b01010100; //mask for only the transmit buffer empty bits
+		
+	if (status != 0b01010100) { //found an open slot
+		setMsg(newFrame.id, newFrame.extended, newFrame.length, newFrame.data.bytes);
+		if ((status & 0b00000100) == 0) { //transmit buffer 0 is open		
+			mcp2515_write_canMsg(MCP_TXB0CTRL + 1);
+			mcp2515_start_transmit(MCP_TXB0CTRL + 1);
+		}
+		else if ((status & 0b00010000) == 0) { //transmit buffer 1 is open
+			mcp2515_write_canMsg(MCP_TXB1CTRL + 1);
+			mcp2515_start_transmit(MCP_TXB1CTRL + 1);
+		}
+		else { // must have been buffer 2 then.
+			mcp2515_write_canMsg(MCP_TXB2CTRL + 1);
+			mcp2515_start_transmit(MCP_TXB2CTRL + 1);
+		}
+	}
+	else { //hardware is busy. queue it in software
+		if (tx_frame_write_pos != tx_frame_read_pos) { //don't add another frame if the buffer is already full
+			tx_frames[tx_frame_write_pos].id = newFrame.id;
+			tx_frames[tx_frame_write_pos].rtr = newFrame.rtr;
+			tx_frames[tx_frame_write_pos].extended = newFrame.extended;
+			tx_frames[tx_frame_write_pos].length = newFrame.length;
+			for (counter = 0; counter < 8; counter++) tx_frames[tx_frame_write_pos].data.byte[counter] = newFrame.data.byte[counter];
+			tx_frame_write_pos = (tx_frame_write_pos + 1) % SIZE_TX_BUFFER;
+		}		
+	}		
+}
+
 void MCP_CAN::EnqueueRX(CAN_FRAME& newFrame) {
 	uint8_t counter;
 	rx_frames[rx_frame_write_pos].id = newFrame.id;
@@ -850,29 +881,32 @@ void MCP_CAN::handleInt()
         EnqueueRX(message);
     }
     if(interruptFlags & MCP_TX0IF) {
-		/*
-       if (tx_frame_read_pos != tx_frame_write_pos) {
-			LoadBuffer(TXB0, (Frame *)&tx_frames[tx_frame_read_pos]);
-		   	SendBuffer(TXB0);
-			tx_frame_read_pos = (tx_frame_read_pos + 1) % 8;
-	   }*/
+		if (tx_frame_read_pos != tx_frame_write_pos) {
+			setMsg(tx_frames[tx_frame_read_pos].id, tx_frames[tx_frame_read_pos].extended, 
+				tx_frames[tx_frame_read_pos].length, (uint8_t *)tx_frames[tx_frame_read_pos].data.bytes);
+			mcp2515_write_canMsg(MCP_TXB0CTRL + 1);
+			mcp2515_start_transmit(MCP_TXB0CTRL + 1);
+			tx_frame_read_pos = (tx_frame_read_pos + 1) % SIZE_TX_BUFFER;
+	   }
     }
     if(interruptFlags & MCP_TX1IF) {
-		/*
-	  if (tx_frame_read_pos != tx_frame_write_pos) {
-		  LoadBuffer(TXB1, (Frame *)&tx_frames[tx_frame_read_pos]);
-		  SendBuffer(TXB1);
-		  tx_frame_read_pos = (tx_frame_read_pos + 1) % 8;
-	  }*/
-    }
-    if(interruptFlags & MCP_TX2IF) {
-		/*
 		if (tx_frame_read_pos != tx_frame_write_pos) {
-			LoadBuffer(TXB2, (Frame *)&tx_frames[tx_frame_read_pos]);
-			SendBuffer(TXB2);
-			tx_frame_read_pos = (tx_frame_read_pos + 1) % 8;
-		} */
-    }
+			setMsg(tx_frames[tx_frame_read_pos].id, tx_frames[tx_frame_read_pos].extended, 
+				tx_frames[tx_frame_read_pos].length, (uint8_t *)tx_frames[tx_frame_read_pos].data.bytes);
+			mcp2515_write_canMsg(MCP_TXB1CTRL + 1);
+			mcp2515_start_transmit(MCP_TXB1CTRL + 1);
+			tx_frame_read_pos = (tx_frame_read_pos + 1) % SIZE_TX_BUFFER;
+	   }
+	}
+    if(interruptFlags & MCP_TX2IF) {
+		if (tx_frame_read_pos != tx_frame_write_pos) {
+			setMsg(tx_frames[tx_frame_read_pos].id, tx_frames[tx_frame_read_pos].extended, 
+				tx_frames[tx_frame_read_pos].length, (uint8_t *)tx_frames[tx_frame_read_pos].data.bytes);
+			mcp2515_write_canMsg(MCP_TXB2CTRL + 1);
+			mcp2515_start_transmit(MCP_TXB2CTRL + 1);
+			tx_frame_read_pos = (tx_frame_read_pos + 1) % SIZE_TX_BUFFER;
+	   }    
+	}
     if(interruptFlags & MCP_ERRIF) {
 		/*
       if (running == 1) { //if there was an error and we had been initialized then try to fix it by reinitializing
