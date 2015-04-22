@@ -835,7 +835,7 @@ void MCP_CAN::EnqueueTX(CAN_FRAME& newFrame) {
 			for (counter = 0; counter < 8; counter++) tx_frames[tx_frame_write_pos].data.byte[counter] = newFrame.data.byte[counter];
 			tx_frame_write_pos = (tx_frame_write_pos + 1) % SIZE_TX_BUFFER;
 		}		
-	}		
+	}	
 }
 
 void MCP_CAN::EnqueueRX(CAN_FRAME& newFrame) {
@@ -845,7 +845,12 @@ void MCP_CAN::EnqueueRX(CAN_FRAME& newFrame) {
 	rx_frames[rx_frame_write_pos].extended = newFrame.extended;
 	rx_frames[rx_frame_write_pos].length = newFrame.length;
 	for (counter = 0; counter < 8; counter++) rx_frames[rx_frame_write_pos].data.byte[counter] = newFrame.data.byte[counter];
-	rx_frame_write_pos = (rx_frame_write_pos + 1) % SIZE_RX_BUFFER;
+	cli();
+	counter = rx_frame_write_pos;
+	counter++;
+	counter %= SIZE_RX_BUFFER;
+	if (counter != rx_frame_read_pos) rx_frame_write_pos = counter;
+	sei();
 }
 
 bool MCP_CAN::GetRXFrame(CAN_FRAME &frame) {
