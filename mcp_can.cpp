@@ -452,7 +452,6 @@ void MCP_CAN::mcp2515_write_canMsg( const INT8U buffer_sidh_addr)
 void MCP_CAN::mcp2515_read_canMsg( const INT8U buffer_sidh_addr)        /* read can msg                 */
 {
     INT8U mcp_addr, ctrl;
-
     mcp_addr = buffer_sidh_addr;
 
     mcp2515_read_id( mcp_addr, &m_nExtFlg,&m_nID );
@@ -835,22 +834,20 @@ void MCP_CAN::EnqueueTX(CAN_FRAME& newFrame) {
 			for (counter = 0; counter < 8; counter++) tx_frames[tx_frame_write_pos].data.byte[counter] = newFrame.data.byte[counter];
 			tx_frame_write_pos = (tx_frame_write_pos + 1) % SIZE_TX_BUFFER;
 		}		
-	}	
+	}
 }
 
-void MCP_CAN::EnqueueRX(CAN_FRAME& newFrame) {
+void MCP_CAN::EnqueueRX() {
 	uint8_t counter;
-	rx_frames[rx_frame_write_pos].id = newFrame.id;
-	rx_frames[rx_frame_write_pos].rtr = newFrame.rtr;
-	rx_frames[rx_frame_write_pos].extended = newFrame.extended;
-	rx_frames[rx_frame_write_pos].length = newFrame.length;
-	for (counter = 0; counter < 8; counter++) rx_frames[rx_frame_write_pos].data.byte[counter] = newFrame.data.byte[counter];
-	cli();
+	rx_frames[rx_frame_write_pos].id = m_nID;
+	rx_frames[rx_frame_write_pos].rtr = m_nRtr;
+	rx_frames[rx_frame_write_pos].extended = m_nExtFlg;
+	rx_frames[rx_frame_write_pos].length = m_nDlc;
+	for (counter = 0; counter < 8; counter++) rx_frames[rx_frame_write_pos].data.byte[counter] = m_nDta[counter];
 	counter = rx_frame_write_pos;
 	counter++;
 	counter %= SIZE_RX_BUFFER;
 	if (counter != rx_frame_read_pos) rx_frame_write_pos = counter;
-	sei();
 }
 
 bool MCP_CAN::GetRXFrame(CAN_FRAME &frame) {
@@ -869,7 +866,6 @@ bool MCP_CAN::GetRXFrame(CAN_FRAME &frame) {
 
 void MCP_CAN::handleInt()
 {
-	CAN_FRAME message;
     // determine which interrupt flags have been set
     uint8_t interruptFlags = mcp2515_readRegister(MCP_CANINTF);
     //Now, acknowledge the interrupts by clearing the intf bits
@@ -877,13 +873,11 @@ void MCP_CAN::handleInt()
     
     if(interruptFlags & MCP_RX0IF) {
 		mcp2515_read_canMsg( MCP_RXBUF_0);
-		receiveFrame(message);
-     	EnqueueRX(message);
+     	EnqueueRX();
     }
     if(interruptFlags & MCP_RX1IF) {
 		mcp2515_read_canMsg( MCP_RXBUF_1);
-		receiveFrame(message);
-        EnqueueRX(message);
+        EnqueueRX();
     }
     if(interruptFlags & MCP_TX0IF) {
 		if (tx_frame_read_pos != tx_frame_write_pos) {
